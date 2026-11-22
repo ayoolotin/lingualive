@@ -2,6 +2,7 @@ import {
   validateTargetLanguage,
   validateMessages,
   parseTutorResponse,
+  TutorResponseValidationError,
 } from './services/llmGateway'
 
 let passed = 0
@@ -71,12 +72,74 @@ assert('Parse valid JSON meaning', parsed1.meaning === sample.meaning)
 assert('Parse breakdown items', parsed1.breakdown.length === 2 && parsed1.breakdown[0].term === 'Quisiera')
 
 const markdownWrapped = '```json\n' + JSON.stringify(sample) + '\n```'
-const parsed2 = parseTutorResponse(markdownWrapped)
-assert('Parse markdown-wrapped JSON', parsed2.phrase === sample.phrase)
+try {
+  parseTutorResponse(markdownWrapped)
+  assert('Reject markdown-wrapped JSON', false)
+} catch (err) {
+  assert('Reject markdown-wrapped JSON', err instanceof TutorResponseValidationError)
+}
 
 const malformed = 'Not valid JSON at all'
-const parsed3 = parseTutorResponse(malformed)
-assert('Handle malformed JSON without throwing', typeof parsed3.phrase === 'string' && Array.isArray(parsed3.breakdown))
+try {
+  parseTutorResponse(malformed)
+  assert('Reject malformed JSON', false)
+} catch (err) {
+  assert('Reject malformed JSON', err instanceof TutorResponseValidationError)
+}
+
+try {
+  parseTutorResponse('Here is the translation: ' + sample.phrase)
+  assert('Reject plain-text model output', false)
+} catch (err) {
+  assert('Reject plain-text model output', err instanceof TutorResponseValidationError)
+}
+
+try {
+  parseTutorResponse('   ')
+  assert('Reject empty model output', false)
+} catch (err) {
+  assert('Reject empty model output', err instanceof TutorResponseValidationError)
+}
+
+const missingFieldCases: Array<[string, Record<string, unknown>]> = [
+  ['missing phrase', { ...sample, phrase: undefined }],
+  ['missing meaning', { ...sample, meaning: undefined }],
+  ['missing pronunciation', { ...sample, pronunciation: undefined }],
+  ['missing usageTip', { ...sample, usageTip: undefined }],
+  ['empty breakdown', { ...sample, breakdown: [] }],
+  ['missing breakdown', { ...sample, breakdown: undefined }],
+]
+
+for (const [name, invalid] of missingFieldCases) {
+  try {
+    parseTutorResponse(JSON.stringify(invalid))
+    assert(`Reject ${name}`, false)
+  } catch (err) {
+    assert(`Reject ${name}`, err instanceof TutorResponseValidationError)
+  }
+}
+
+const incorrectTypes: Record<string, unknown>[] = [
+  { ...sample, phrase: 42 },
+  { ...sample, meaning: null },
+  { ...sample, pronunciation: ['kee-see'] },
+  { ...sample, usageTip: false },
+  { ...sample, breakdown: 'Quisiera means I would like' },
+  { ...sample, phrase: '   ' },
+  { ...sample, meaning: '' },
+  { ...sample, breakdown: [null] },
+  { ...sample, breakdown: [{ term: '', meaning: 'I would like' }] },
+  { ...sample, breakdown: [{ term: 'Quisiera', meaning: null }] },
+]
+
+for (let i = 0; i < incorrectTypes.length; i++) {
+  try {
+    parseTutorResponse(JSON.stringify(incorrectTypes[i]))
+    assert(`Reject incorrect field type ${i + 1}`, false)
+  } catch (err) {
+    assert(`Reject incorrect field type ${i + 1}`, err instanceof TutorResponseValidationError)
+  }
+}
 
 console.log(`\nTEST RESULTS: ${passed}/${total} checks passed.`)
 if (passed !== total) {

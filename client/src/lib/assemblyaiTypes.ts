@@ -16,7 +16,8 @@ export interface AaiSpeechStartedEvent {
 
 export interface AaiTurnEvent {
   type: 'Turn'
-  turn_order: number
+  /** Session-local Turn identity. Missing in malformed or older payloads. */
+  turn_order?: number
   turn_is_formatted: boolean
   end_of_turn: boolean
   transcript: string

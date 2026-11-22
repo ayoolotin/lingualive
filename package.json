@@ -12,6 +12,7 @@
     "eval:metrics": "node --require ts-node/register evaluation/scripts/calculate-metrics.ts",
     "eval:test": "node --require ts-node/register evaluation/scripts/calculate-metrics.ts --test",
     "test:audio-worklet": "node --require ts-node/register scripts/test-audio-worklet.ts",
+    "test:stt-dedup": "node --experimental-strip-types scripts/test-stt-deduplication.mts",
     "install:all": "npm install"
   },
   "workspaces": [

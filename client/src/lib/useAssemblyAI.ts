@@ -1,5 +1,7 @@
 import { useRef, useCallback } from 'react'
 import type { AaiEvent, AaiTurnEvent } from './assemblyaiTypes'
+import { FinalTurnDeduplicator } from './finalTurnDeduplicator'
+import { SttSessionOwnership } from './sttSessionOwnership'
 
 const AAI_WS_URL = 'wss://streaming.assemblyai.com/v3/ws'
 const SAMPLE_RATE = 16_000
@@ -51,8 +53,9 @@ export function useAssemblyAI(callbacks: UseAssemblyAICallbacks): UseAssemblyAIR
   const onCleanupRef = useRef<(() => void) | null>(null)
   const isTerminatingRef = useRef(false)
   const turnCounterRef = useRef(0)
-  const lastCommittedTextRef = useRef<string | null>(null)
+  const finalTurnDeduplicatorRef = useRef(new FinalTurnDeduplicator())
   const terminationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const sessionOwnershipRef = useRef(new SttSessionOwnership())
 
   /**
    * Request a short-lived temporary token from the backend.
@@ -78,7 +81,9 @@ export function useAssemblyAI(callbacks: UseAssemblyAICallbacks): UseAssemblyAIR
     return data.token
   }
 
-  const cleanup = useCallback(() => {
+  const cleanupSession = useCallback((sessionId: number) => {
+    if (!sessionOwnershipRef.current.isActive(sessionId)) return false
+
     if (terminationTimerRef.current) {
       clearTimeout(terminationTimerRef.current)
       terminationTimerRef.current = null
@@ -106,13 +111,19 @@ export function useAssemblyAI(callbacks: UseAssemblyAICallbacks): UseAssemblyAIR
     }
 
     isTerminatingRef.current = false
-    lastCommittedTextRef.current = null
+    finalTurnDeduplicatorRef.current.reset()
+    return true
   }, [])
+
+  const cleanup = useCallback(() => {
+    cleanupSession(sessionOwnershipRef.current.activeSessionId)
+  }, [cleanupSession])
 
   const disconnect = useCallback(() => {
     const ws = wsRef.current
+    const sessionId = sessionOwnershipRef.current.activeSessionId
     if (!ws || ws.readyState !== WebSocket.OPEN) {
-      cleanup()
+      cleanupSession(sessionId)
       callbacks.onStateChange('disconnected')
       return
     }
@@ -125,17 +136,17 @@ export function useAssemblyAI(callbacks: UseAssemblyAICallbacks): UseAssemblyAIR
     try {
       ws.send(JSON.stringify({ type: 'Terminate' }))
     } catch {
-      cleanup()
+      cleanupSession(sessionId)
       callbacks.onStateChange('disconnected')
       return
     }
 
     // 2. Safe timeout in case server doesn't respond with Termination
     terminationTimerRef.current = setTimeout(() => {
-      cleanup()
+      cleanupSession(sessionId)
       callbacks.onStateChange('disconnected')
     }, TERMINATION_TIMEOUT_MS)
-  }, [callbacks, cleanup])
+  }, [callbacks, cleanupSession])
 
   const sendAudio = useCallback((pcm: ArrayBuffer) => {
     const ws = wsRef.current
@@ -153,10 +164,11 @@ export function useAssemblyAI(callbacks: UseAssemblyAICallbacks): UseAssemblyAIR
       // Clean up any stale connection first
       cleanup()
 
+      const sessionId = sessionOwnershipRef.current.beginSession()
       callbacks.onStateChange('connecting')
       isTerminatingRef.current = false
       turnCounterRef.current = 0
-      lastCommittedTextRef.current = null
+      finalTurnDeduplicatorRef.current.reset()
       onCleanupRef.current = onCleanup
 
       // 1. Fetch short-lived token from backend
@@ -164,12 +176,15 @@ export function useAssemblyAI(callbacks: UseAssemblyAICallbacks): UseAssemblyAIR
       try {
         token = await fetchToken()
       } catch (err) {
+        if (!sessionOwnershipRef.current.isActive(sessionId)) return
         const message = err instanceof Error ? err.message : 'Failed to obtain AssemblyAI token'
         callbacks.onError(message)
-        cleanup()
+        cleanupSession(sessionId)
         callbacks.onStateChange('error')
         return
       }
+
+      if (!sessionOwnershipRef.current.isActive(sessionId)) return
 
       // 2. Connect to AssemblyAI Streaming v3 WebSocket
       const encodedModel = encodeURIComponent(SPEECH_MODEL)
@@ -181,6 +196,16 @@ export function useAssemblyAI(callbacks: UseAssemblyAICallbacks): UseAssemblyAIR
       wsRef.current = ws
 
       ws.onmessage = (event) => {
+        if (
+          wsRef.current !== ws ||
+          !sessionOwnershipRef.current.isActive(sessionId)
+        ) {
+          if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+            ws.close()
+          }
+          return
+        }
+
         let parsed: AaiEvent
         try {
           parsed = JSON.parse(event.data as string) as AaiEvent
@@ -212,9 +237,9 @@ export function useAssemblyAI(callbacks: UseAssemblyAICallbacks): UseAssemblyAIR
             if (!text) break // Ignore empty transcript messages
 
             if (turn.end_of_turn) {
-              // Commit final transcript to conversation history (deduplicated)
-              if (text !== lastCommittedTextRef.current) {
-                lastCommittedTextRef.current = text
+              // turn_order identifies a Turn in this session. Identical text
+              // from a different turn_order is a legitimate repeated utterance.
+              if (finalTurnDeduplicatorRef.current.shouldCommit(turn)) {
                 const id = `turn-${++turnCounterRef.current}-${Date.now()}`
                 callbacks.onFinalTurn({ id, transcript: text, timestamp: new Date() })
               }
@@ -222,7 +247,6 @@ export function useAssemblyAI(callbacks: UseAssemblyAICallbacks): UseAssemblyAIR
               callbacks.onPartialTranscript('')
             } else {
               // Mutable partial transcript: replace current value
-              lastCommittedTextRef.current = null
               callbacks.onPartialTranscript(text)
             }
             break
@@ -231,7 +255,7 @@ export function useAssemblyAI(callbacks: UseAssemblyAICallbacks): UseAssemblyAIR
           case 'Termination': {
             // Session cleanly ended by server
             callbacks.onPartialTranscript('')
-            cleanup()
+            cleanupSession(sessionId)
             callbacks.onStateChange('disconnected')
             break
           }
@@ -239,7 +263,7 @@ export function useAssemblyAI(callbacks: UseAssemblyAICallbacks): UseAssemblyAIR
           case 'Error': {
             const errorMsg = parsed.error || 'AssemblyAI streaming error'
             callbacks.onError(errorMsg)
-            cleanup()
+            cleanupSession(sessionId)
             callbacks.onStateChange('error')
             break
           }
@@ -247,25 +271,40 @@ export function useAssemblyAI(callbacks: UseAssemblyAICallbacks): UseAssemblyAIR
       }
 
       ws.onerror = () => {
+        if (
+          wsRef.current !== ws ||
+          !sessionOwnershipRef.current.isActive(sessionId)
+        ) {
+          if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+            ws.close()
+          }
+          return
+        }
         if (!isTerminatingRef.current) {
           callbacks.onError('WebSocket connection error with AssemblyAI')
           callbacks.onStateChange('error')
         }
-        cleanup()
+        cleanupSession(sessionId)
       }
 
       ws.onclose = (event) => {
+        if (
+          wsRef.current !== ws ||
+          !sessionOwnershipRef.current.isActive(sessionId)
+        ) {
+          return
+        }
         if (!isTerminatingRef.current && event.code !== 1000) {
           callbacks.onError(`AssemblyAI connection closed (code ${event.code})`)
           callbacks.onStateChange('error')
         }
-        cleanup()
+        cleanupSession(sessionId)
         if (!isTerminatingRef.current) {
           callbacks.onStateChange('disconnected')
         }
       }
     },
-    [callbacks, cleanup, disconnect],
+    [callbacks, cleanup, cleanupSession, disconnect],
   )
 
   return { connect, disconnect, sendAudio }

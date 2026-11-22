@@ -119,63 +119,88 @@ Pedagogical rules:
  * Extracts and parses the structured JSON tutor response.
  */
 export function parseTutorResponse(rawContent: string): TutorResponseData {
-  let cleaned = rawContent.trim()
-  // Strip markdown code block if present
-  if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
+  const cleaned = rawContent.trim()
+  if (!cleaned) {
+    throw new TutorResponseValidationError('The Gateway returned an empty tutor response')
   }
 
   let parsed: unknown
   try {
     parsed = JSON.parse(cleaned)
   } catch {
-    // Attempt regex extraction of JSON object
-    const match = cleaned.match(/\{[\s\S]*\}/)
-    if (match) {
-      try {
-        parsed = JSON.parse(match[0])
-      } catch {
-        // Fallback below
-      }
-    }
+    throw new TutorResponseValidationError(
+      'The Gateway returned invalid JSON for the tutor response',
+    )
   }
 
   if (!parsed || typeof parsed !== 'object') {
-    return {
-      phrase: cleaned || 'Pardon, could you repeat that?',
-      meaning: 'I could not generate a translation for that phrase.',
-      breakdown: [],
-      pronunciation: '',
-      usageTip: 'Try asking how to say a specific phrase or greeting.',
-    }
+    throw new TutorResponseValidationError(
+      'The Gateway tutor response must be a JSON object',
+    )
   }
 
   const obj = parsed as Record<string, unknown>
+  const fields: Array<keyof TutorResponseData> = [
+    'phrase',
+    'meaning',
+    'pronunciation',
+    'usageTip',
+  ]
+  const strings: Record<string, string> = {}
+  for (const field of fields) {
+    const value = obj[field]
+    if (typeof value !== 'string' || !value.trim()) {
+      throw new TutorResponseValidationError(
+        `The Gateway tutor response has missing or invalid "${field}"`,
+      )
+    }
+    strings[field] = value.trim()
+  }
 
-  const phrase = typeof obj.phrase === 'string' ? obj.phrase.trim() : ''
-  const meaning = typeof obj.meaning === 'string' ? obj.meaning.trim() : ''
-  const pronunciation = typeof obj.pronunciation === 'string' ? obj.pronunciation.trim() : ''
-  const usageTip = typeof obj.usageTip === 'string' ? obj.usageTip.trim() : ''
+  if (!Array.isArray(obj.breakdown) || obj.breakdown.length === 0) {
+    throw new TutorResponseValidationError(
+      'The Gateway tutor response has missing or empty "breakdown"',
+    )
+  }
 
   const breakdown: TutorBreakdownItem[] = []
-  if (Array.isArray(obj.breakdown)) {
-    for (const item of obj.breakdown) {
-      if (item && typeof item === 'object') {
-        const term = String((item as Record<string, unknown>).term || '').trim()
-        const termMeaning = String((item as Record<string, unknown>).meaning || '').trim()
-        if (term && termMeaning) {
-          breakdown.push({ term, meaning: termMeaning })
-        }
-      }
+  for (let index = 0; index < obj.breakdown.length; index++) {
+    const item = obj.breakdown[index]
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new TutorResponseValidationError(
+        `The Gateway tutor response has an invalid "breakdown" entry at index ${index}`,
+      )
     }
+    const record = item as Record<string, unknown>
+    if (typeof record.term !== 'string' || !record.term.trim()) {
+      throw new TutorResponseValidationError(
+        `The Gateway tutor response has missing or invalid "breakdown.term" at index ${index}`,
+      )
+    }
+    if (typeof record.meaning !== 'string' || !record.meaning.trim()) {
+      throw new TutorResponseValidationError(
+        `The Gateway tutor response has missing or invalid "breakdown.meaning" at index ${index}`,
+      )
+    }
+    breakdown.push({
+      term: record.term.trim(),
+      meaning: record.meaning.trim(),
+    })
   }
 
   return {
-    phrase: phrase || 'Phrase unavailable',
-    meaning: meaning || 'Meaning unavailable',
+    phrase: strings.phrase,
+    meaning: strings.meaning,
     breakdown,
-    pronunciation,
-    usageTip,
+    pronunciation: strings.pronunciation,
+    usageTip: strings.usageTip,
+  }
+}
+
+export class TutorResponseValidationError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'TutorResponseValidationError'
   }
 }
 
@@ -309,5 +334,14 @@ export async function requestTutorResponse(
     throw error
   }
 
-  return parseTutorResponse(content)
+  try {
+    return parseTutorResponse(content)
+  } catch (err) {
+    if (err instanceof TutorResponseValidationError) {
+      const error = new Error('The LLM Gateway returned an invalid tutor response')
+      ;(error as unknown as { status: number }).status = 502
+      throw error
+    }
+    throw err
+  }
 }
