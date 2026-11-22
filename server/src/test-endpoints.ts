@@ -99,6 +99,22 @@ async function runEndpointTests() {
       Boolean(ttsTokenJson.token && sttTokenJson.token && ttsTokenJson.token !== sttTokenJson.token),
     )
 
+    // Missing TTS credential check
+    const originalKey = process.env.ASSEMBLYAI_API_KEY
+    process.env.ASSEMBLYAI_API_KEY = ''
+    try {
+      const missingKeyRes = await fetch(`${baseUrl}/assemblyai/tts-token`)
+      const missingKeyBody = (await missingKeyRes.json()) as { error?: string }
+      assertHttp(
+        'GET /api/assemblyai/tts-token returns 503 when API key is missing',
+        missingKeyRes.status === 503 &&
+          typeof missingKeyBody.error === 'string' &&
+          !JSON.stringify(missingKeyBody).includes(originalKey || '__never_configured__'),
+      )
+    } finally {
+      process.env.ASSEMBLYAI_API_KEY = originalKey
+    }
+
     // 8. Live LLM Gateway test if API key is configured
     console.log('\n--- 5. Live LLM Gateway Verification ---')
     const key = process.env.ASSEMBLYAI_API_KEY?.trim()

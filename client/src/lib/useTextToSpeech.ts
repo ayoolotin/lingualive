@@ -3,6 +3,8 @@ import type { Language, TtsPlaybackState, TtsTimingMetrics } from '../types'
 
 const TTS_WS_URL = 'wss://tts.us.assemblyai.com/v1/ws'
 const DEFAULT_VOICE_ID = 'aai-jane'
+const TTS_MODEL_ID = 'assemblyai-tts-1'
+const TTS_ENCODING = 'pcm_s16le'
 const SAMPLE_RATE = 24_000
 
 const LANGUAGE_TO_TTS: Record<Language, string> = {
@@ -26,7 +28,12 @@ export interface UseTextToSpeechReturn {
  * into a Float32Array suitable for Web Audio API.
  */
 function decodePcmBase64(base64: string): Float32Array {
-  const binaryString = atob(base64)
+  let binaryString: string
+  try {
+    binaryString = atob(base64)
+  } catch {
+    throw new Error('AssemblyAI returned invalid base64 PCM audio')
+  }
   const len = binaryString.length
   const bytes = new Uint8Array(len)
   for (let i = 0; i < len; i++) {
@@ -50,13 +57,30 @@ export function useTextToSpeech(): UseTextToSpeechReturn {
 
   const audioContextRef = useRef<AudioContext | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
-  const activeSourcesRef = useRef<AudioBufferSourceNode[]>([])
+  const activeSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set())
   const nextStartTimeRef = useRef<number>(0)
   const completionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const timingRef = useRef<TtsTimingMetrics | null>(null)
+  const sessionGenerationRef = useRef(0)
+  const flushDoneRef = useRef(false)
 
-  // Clean up all resources
+  const closeAudioContext = useCallback(async () => {
+    const ctx = audioContextRef.current
+    audioContextRef.current = null
+    if (ctx && ctx.state !== 'closed') {
+      try {
+        await ctx.close()
+      } catch {
+        // Already closed by the browser.
+      }
+    }
+  }, [])
+
+  // Clean up all resources without changing an existing error message.
   const stop = useCallback(() => {
+    sessionGenerationRef.current++
+    flushDoneRef.current = false
+
     // 1. Clear completion timer
     if (completionTimerRef.current) {
       clearTimeout(completionTimerRef.current)
@@ -72,16 +96,18 @@ export function useTextToSpeech(): UseTextToSpeechReturn {
         // ignore already stopped
       }
     }
-    activeSourcesRef.current = [];
+    activeSourcesRef.current.clear()
 
     // 3. Close active WebSocket session cleanly
     if (wsRef.current) {
       const ws = wsRef.current
       wsRef.current = null
       try {
-        if (ws.readyState === WebSocket.OPEN) {
+        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+          if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'Cancel' }))
           ws.send(JSON.stringify({ type: 'Terminate' }))
+          }
           ws.close()
         }
       } catch {
@@ -92,19 +118,18 @@ export function useTextToSpeech(): UseTextToSpeechReturn {
     // 4. Reset audio schedule cursor
     nextStartTimeRef.current = 0
 
+    void closeAudioContext()
     setActivePhraseId(null)
     setPlaybackState('idle')
-  }, [])
+  }, [closeAudioContext])
 
   // Auto cleanup on unmount
   useEffect(() => {
     return () => {
       stop()
-      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-        audioContextRef.current.close().catch(() => {/* ignore */})
-      }
+      void closeAudioContext()
     }
-  }, [stop])
+  }, [stop, closeAudioContext])
 
   const speak = useCallback(
     async (phraseId: string, phrase: string, language: Language) => {
@@ -114,6 +139,7 @@ export function useTextToSpeech(): UseTextToSpeechReturn {
       // If another phrase or current phrase is active, stop it first
       stop()
 
+      const generation = sessionGenerationRef.current
       setActivePhraseId(phraseId)
       setPlaybackState('loading')
       setErrorMessage(null)
@@ -133,9 +159,26 @@ export function useTextToSpeech(): UseTextToSpeechReturn {
         audioContextRef.current = ctx
       }
       if (ctx.state === 'suspended') {
-        await ctx.resume()
+        try {
+          await ctx.resume()
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Could not start the browser audio context'
+          setErrorMessage(msg)
+          setPlaybackState('error')
+          setActivePhraseId(null)
+          return
+        }
+      }
+      if (ctx.state !== 'running') {
+        setErrorMessage('Browser audio is suspended. Press Listen again to enable playback.')
+        setPlaybackState('error')
+        setActivePhraseId(null)
+        return
       }
       nextStartTimeRef.current = ctx.currentTime
+      if (import.meta.env.DEV) {
+        console.debug('[LinguaLive TTS] AudioContext state:', ctx.state, 'sampleRate:', ctx.sampleRate)
+      }
 
       // 2. Fetch fresh temporary TTS token from backend
       let token: string
@@ -164,19 +207,57 @@ export function useTextToSpeech(): UseTextToSpeechReturn {
 
       // 3. Connect to AssemblyAI TTS WebSocket
       const ttsLang = LANGUAGE_TO_TTS[language] || 'spanish'
-      const encodedToken = encodeURIComponent(token)
-      const wsUrl = `${TTS_WS_URL}?token=${encodedToken}&voice_id=${DEFAULT_VOICE_ID}&language=${ttsLang}&sample_rate=${SAMPLE_RATE}`
+      const connectSession = (temporaryToken: string) => {
+        const params = new URLSearchParams({
+          token: temporaryToken,
+          voice_id: DEFAULT_VOICE_ID,
+          model_id: TTS_MODEL_ID,
+          language: ttsLang,
+          sample_rate: String(SAMPLE_RATE),
+          encoding: TTS_ENCODING,
+        })
+        const ws = new WebSocket(`${TTS_WS_URL}?${params}`)
+        wsRef.current = ws
+        let hasReceivedFirstAudio = false
+        let hasRetriedConnection = false
+        let playbackCompleted = false
 
-      const ws = new WebSocket(wsUrl)
-      wsRef.current = ws
+        const completePlayback = () => {
+          if (playbackCompleted || sessionGenerationRef.current !== generation) return
+          playbackCompleted = true
+          const completedMs = performance.now()
+          currentTiming.playbackCompletedMs = completedMs
+          if (currentTiming.firstAudioPlayedMs) {
+            currentTiming.totalPlaybackTimeMs = Math.round(
+              completedMs - currentTiming.firstAudioPlayedMs,
+            )
+          }
+          setMetrics({ ...currentTiming })
+          setPlaybackState('idle')
+          setActivePhraseId(null)
+          wsRef.current = null
+          try {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: 'Terminate' }))
+            } else {
+              ws.close()
+            }
+          } catch {
+            // The context cleanup below still completes locally.
+          }
+          void closeAudioContext()
+          if (import.meta.env.DEV) {
+            console.debug('[LinguaLive TTS] Playback completed')
+          }
+        }
 
-      let hasReceivedFirstAudio = false
+        ws.onopen = () => {
+          if (import.meta.env.DEV) {
+            console.debug('[LinguaLive TTS] WebSocket connection opened')
+          }
+        }
 
-      ws.onopen = () => {
-        // Wait for Begin event before sending Generate
-      }
-
-      ws.onmessage = (event) => {
+        ws.onmessage = (event) => {
         if (typeof event.data !== 'string') return
 
         let parsed: {
@@ -211,6 +292,13 @@ export function useTextToSpeech(): UseTextToSpeechReturn {
 
           case 'Audio': {
             if (!parsed.audio) break
+            if (ctx!.state !== 'running') {
+              setErrorMessage('Browser audio stopped. Press Listen again to resume playback.')
+              setPlaybackState('error')
+              sessionGenerationRef.current++
+              ws.close()
+              return
+            }
 
             const nowMs = performance.now()
             if (!hasReceivedFirstAudio) {
@@ -218,11 +306,29 @@ export function useTextToSpeech(): UseTextToSpeechReturn {
               currentTiming.firstAudioReceivedMs = nowMs
               currentTiming.timeToFirstAudioMs = Math.round(nowMs - currentTiming.requestInitiatedMs)
               setMetrics({ ...currentTiming })
+              if (import.meta.env.DEV) {
+                console.debug('[LinguaLive TTS] First audio message received')
+              }
             }
 
             // Decode base64 PCM s16le to Float32
-            const float32Samples = decodePcmBase64(parsed.audio)
+            let float32Samples: Float32Array
+            try {
+              float32Samples = decodePcmBase64(parsed.audio)
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : 'Could not decode TTS PCM audio'
+              setErrorMessage(msg)
+              setPlaybackState('error')
+              setActivePhraseId(null)
+              sessionGenerationRef.current++
+              ws.close()
+              void closeAudioContext()
+              break
+            }
             if (float32Samples.length === 0) break
+            if (import.meta.env.DEV) {
+              console.debug('[LinguaLive TTS] Decoded PCM samples:', float32Samples.length, 'sampleRate:', ctx!.sampleRate)
+            }
 
             // Create AudioBuffer
             const audioBuffer = ctx!.createBuffer(1, float32Samples.length, SAMPLE_RATE)
@@ -234,77 +340,127 @@ export function useTextToSpeech(): UseTextToSpeechReturn {
             const source = ctx!.createBufferSource()
             source.buffer = audioBuffer
             source.connect(ctx!.destination)
+            activeSourcesRef.current.add(source)
+            source.onended = () => {
+              source.disconnect()
+              activeSourcesRef.current.delete(source)
+              if (
+                flushDoneRef.current &&
+                activeSourcesRef.current.size === 0 &&
+                sessionGenerationRef.current === generation
+              ) {
+                completePlayback()
+              }
+            }
             source.start(startTime)
 
             if (!currentTiming.firstAudioPlayedMs) {
               currentTiming.firstAudioPlayedMs = performance.now()
               setMetrics({ ...currentTiming })
+              if (import.meta.env.DEV) {
+                console.debug('[LinguaLive TTS] First audio chunk scheduled')
+              }
             }
 
-            activeSourcesRef.current.push(source)
             nextStartTimeRef.current = startTime + audioBuffer.duration
             setPlaybackState('playing')
             break
           }
 
           case 'FlushDone': {
-            // All audio sent from server. Schedule completion when last buffer finishes
+            flushDoneRef.current = true
+            // All audio was delivered to the socket. Finish when the last scheduled buffer ends.
             const remainingAudioSeconds = Math.max(0, nextStartTimeRef.current - ctx!.currentTime)
             const remainingMs = Math.ceil(remainingAudioSeconds * 1000) + 150
 
             completionTimerRef.current = setTimeout(() => {
-              const completedMs = performance.now()
-              currentTiming.playbackCompletedMs = completedMs
-              if (currentTiming.firstAudioPlayedMs) {
-                currentTiming.totalPlaybackTimeMs = Math.round(
-                  completedMs - currentTiming.firstAudioPlayedMs,
-                )
-              }
-              setMetrics({ ...currentTiming })
-              setPlaybackState('idle')
-              setActivePhraseId(null)
-
-              // Gracefully close WebSocket
-              try {
-                if (ws.readyState === WebSocket.OPEN) {
-                  ws.send(JSON.stringify({ type: 'Terminate' }))
-                  ws.close()
-                }
-              } catch {
-                // ignore
-              }
-              wsRef.current = null
+              completePlayback()
             }, remainingMs)
+            if (import.meta.env.DEV) {
+              console.debug('[LinguaLive TTS] FlushDone; scheduled playback remaining:', remainingMs, 'ms')
+            }
             break
           }
 
           case 'Error': {
             const err = parsed.message || parsed.error || 'TTS synthesis error'
+            if (import.meta.env.DEV) {
+              console.debug('[LinguaLive TTS] Synthesis error:', err)
+            }
             setErrorMessage(err)
             setPlaybackState('error')
-            stop()
+            setActivePhraseId(null)
+            sessionGenerationRef.current++
+            wsRef.current = null
+            for (const source of activeSourcesRef.current) {
+              try { source.stop(); source.disconnect() } catch { /* already stopped */ }
+            }
+            activeSourcesRef.current.clear()
+            void closeAudioContext()
+            try { ws.close() } catch { /* already closed */ }
             break
           }
         }
-      }
+        }
 
-      ws.onerror = () => {
-        setErrorMessage('TTS connection error')
-        setPlaybackState('error')
-        stop()
-      }
-
-      ws.onclose = (event) => {
-        if (event.code !== 1000 && event.code !== 1005) {
-          if (!hasReceivedFirstAudio) {
-            setErrorMessage(`TTS disconnected (code ${event.code})`)
-            setPlaybackState('error')
-            setActivePhraseId(null)
+        ws.onerror = () => {
+          if (sessionGenerationRef.current !== generation) return
+          if (import.meta.env.DEV) {
+            console.debug('[LinguaLive TTS] WebSocket error')
           }
+          setErrorMessage('TTS connection error')
+          setPlaybackState('error')
+          setActivePhraseId(null)
+          sessionGenerationRef.current++
+          wsRef.current = null
+          void closeAudioContext()
+        }
+
+        ws.onclose = (event) => {
+          if (sessionGenerationRef.current !== generation) return
+          if (import.meta.env.DEV) {
+            console.debug('[LinguaLive TTS] WebSocket closed:', event.code)
+          }
+          if (event.code === 1000 || event.code === 1005) return
+
+          if (!hasRetriedConnection && (event.code === 1008 || event.code === 3005 || event.code === 1012)) {
+            hasRetriedConnection = true
+            void fetch('/api/assemblyai/tts-token')
+              .then(async (tokenRes) => {
+                if (!tokenRes.ok) throw new Error('Could not refresh TTS authorization')
+                const tokenData = (await tokenRes.json()) as { token?: string }
+                if (!tokenData.token) throw new Error('No refreshed TTS token returned')
+                if (sessionGenerationRef.current !== generation) return
+                connectSession(tokenData.token)
+              })
+              .catch((err: unknown) => {
+                if (sessionGenerationRef.current !== generation) return
+                setErrorMessage(err instanceof Error ? err.message : 'TTS reconnection failed')
+                setPlaybackState('error')
+                setActivePhraseId(null)
+              })
+            return
+          }
+
+          if (event.code === 1008 && !hasReceivedFirstAudio) {
+            setErrorMessage('TTS authorization expired. Please try again.')
+          } else if (!flushDoneRef.current) {
+            setErrorMessage(`TTS disconnected (code ${event.code})`)
+          } else {
+            setErrorMessage('TTS playback ended unexpectedly')
+          }
+
+          setPlaybackState('error')
+          setActivePhraseId(null)
+          sessionGenerationRef.current++
+          wsRef.current = null
+          void closeAudioContext()
         }
       }
+
+      connectSession(token)
     },
-    [stop],
+    [stop, closeAudioContext],
   )
 
   return {

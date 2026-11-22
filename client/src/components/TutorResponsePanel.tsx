@@ -166,7 +166,7 @@ export function TutorResponsePanel({
                   </button>
 
                   {/* Stop button when playing */}
-                  {isTtsPlaying && onStopSpeak && (
+                  {(isTtsPlaying || isTtsLoading) && onStopSpeak && (
                     <button
                       type="button"
                       onClick={onStopSpeak}
