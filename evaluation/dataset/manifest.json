@@ -1,0 +1,94 @@
+{
+  "version": 2,
+  "status": "planned_not_recorded",
+  "dataset": [
+    {
+      "test_id": "EN-01",
+      "reference_transcript": "How do I say good morning in Spanish?",
+      "input_language": "English",
+      "target_language": "Spanish",
+      "test_condition": "clean_short",
+      "audio_filename": null,
+      "speaker_id": null,
+      "recording_status": "not_recorded",
+      "audio_duration_ms": null
+    },
+    {
+      "test_id": "EN-02",
+      "reference_transcript": "I'm ordering coffee in Paris. How do I politely ask for oat milk in French?",
+      "input_language": "English",
+      "target_language": "French",
+      "test_condition": "conversational",
+      "audio_filename": null,
+      "speaker_id": null,
+      "recording_status": "not_recorded",
+      "audio_duration_ms": null
+    },
+    {
+      "test_id": "EN-03",
+      "reference_transcript": "What's the difference between saying I know him and I know how to do it in Spanish?",
+      "input_language": "English",
+      "target_language": "Spanish",
+      "test_condition": "contextual",
+      "audio_filename": null,
+      "speaker_id": null,
+      "recording_status": "not_recorded",
+      "audio_duration_ms": null
+    },
+    {
+      "test_id": "EN-04",
+      "reference_transcript": "How would I tell a friend I'm running a little late in Italian?",
+      "input_language": "English",
+      "target_language": "Italian",
+      "test_condition": "informal_language",
+      "audio_filename": null,
+      "speaker_id": null,
+      "recording_status": "not_recorded",
+      "audio_duration_ms": null
+    },
+    {
+      "test_id": "EN-05",
+      "reference_transcript": "I'm checking into a hotel in Germany. How can I ask whether I can leave my luggage before check-in?",
+      "input_language": "English",
+      "target_language": "German",
+      "test_condition": "longer_request",
+      "audio_filename": null,
+      "speaker_id": null,
+      "recording_status": "not_recorded",
+      "audio_duration_ms": null
+    },
+    {
+      "test_id": "EN-06",
+      "reference_transcript": "How do you say... um... could you speak a little more slowly, please, in French?",
+      "input_language": "English",
+      "target_language": "French",
+      "test_condition": "hesitation",
+      "audio_filename": null,
+      "speaker_id": null,
+      "recording_status": "not_recorded",
+      "audio_duration_ms": null
+    },
+    {
+      "test_id": "EN-07",
+      "reference_transcript": "What's a more casual way of saying I don't understand in Spanish?",
+      "input_language": "English",
+      "target_language": "Spanish",
+      "test_condition": "natural_variation",
+      "audio_filename": null,
+      "speaker_id": null,
+      "recording_status": "not_recorded",
+      "audio_duration_ms": null
+    },
+    {
+      "test_id": "EN-08",
+      "reference_transcript": "How do I ask for directions to the nearest train station in Italian?",
+      "input_language": "English",
+      "target_language": "Italian",
+      "test_condition": "controlled_background_noise",
+      "audio_filename": null,
+      "speaker_id": null,
+      "recording_status": "not_recorded",
+      "audio_duration_ms": null
+    }
+  ]
+}

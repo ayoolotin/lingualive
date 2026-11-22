@@ -1,0 +1,1 @@
+Test ID,Language,Provider,Run number,Reference transcript,Hypothesis transcript,WER,First partial latency (ms),Final transcript latency (ms),Audio duration (ms),Real-time factor,Success/failure,Error details,Notes

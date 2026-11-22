@@ -18,10 +18,13 @@ class LinguaLiveProcessor extends AudioWorkletProcessor {
     this._inputSampleRate = inputSampleRate
     this._targetSampleRate = targetSampleRate
     this._ratio = inputSampleRate / targetSampleRate
-    this._targetFrameSize = Math.round(targetSampleRate * 0.1) // 1600 samples = 100ms at 16kHz
-    this._buffer = new Float32Array(this._targetFrameSize * 4)
+    this._targetFrameSize = Math.round(targetSampleRate * 0.1) // 1600 samples = 100 ms at 16 kHz
+    this._buffer = new Float32Array(this._targetFrameSize)
     this._bufferLen = 0
-    this._inputCursor = 0
+    // Absolute position in the continuous input stream, measured in input samples.
+    // This position is output-driven and is not reset or decremented at block boundaries.
+    this._sourcePosition = 0
+    this._blockStart = 0
     this._lastInputSample = 0
   }
 
@@ -31,39 +34,73 @@ class LinguaLiveProcessor extends AudioWorkletProcessor {
 
     const channel = input[0]
     const inLen = channel.length
+    const blockEnd = this._blockStart + inLen
 
-    // Linear interpolation resampling
-    while (this._inputCursor < inLen) {
-      const idx = Math.floor(this._inputCursor)
-      const frac = this._inputCursor - idx
-      const s0 = idx === 0 ? this._lastInputSample : channel[idx - 1]
-      const s1 = channel[idx]
-      const sample = s0 + frac * (s1 - s0)
+    // Each output sample is scheduled at a position in the continuous input timeline.
+    // Interpolate between the previous input sample and the current block sample only
+    // when the scheduled position crosses the beginning of a new input block.
+    while (this._sourcePosition < blockEnd) {
+      const relativePosition = this._sourcePosition - this._blockStart
+
+      if (!Number.isFinite(relativePosition) || relativePosition < 0 || relativePosition >= inLen) {
+        break
+      }
+
+      const idx = Math.floor(relativePosition)
+      const frac = relativePosition - idx
+      let sample
+
+      if (!Number.isFinite(frac) || idx < 0 || idx >= inLen) {
+        sample = 0
+      } else if (frac === 0) {
+        const exact = channel[idx]
+        sample = Number.isFinite(exact) ? exact : 0
+      } else if (idx === 0) {
+        const previous = Number.isFinite(this._lastInputSample) ? this._lastInputSample : 0
+        const current = Number.isFinite(channel[0]) ? channel[0] : 0
+        sample = previous + frac * (current - previous)
+      } else {
+        const previous = Number.isFinite(channel[idx - 1]) ? channel[idx - 1] : 0
+        const current = Number.isFinite(channel[idx]) ? channel[idx] : 0
+        sample = previous + frac * (current - previous)
+      }
+
+      if (!Number.isFinite(sample)) sample = 0
+      sample = Math.max(-1, Math.min(1, sample))
 
       if (this._bufferLen < this._buffer.length) {
         this._buffer[this._bufferLen++] = sample
       }
-      this._inputCursor += this._ratio
-    }
+      this._sourcePosition += this._ratio
 
-    this._lastInputSample = channel[inLen - 1]
-    this._inputCursor -= inLen
+      // Emit frames only when we have at least 100 ms worth of samples.
+      if (this._bufferLen >= this._targetFrameSize) {
+        const buffer = new ArrayBuffer(this._targetFrameSize * 2)
+        const view = new DataView(buffer)
+        for (let j = 0; j < this._targetFrameSize; j++) {
+          const s = Math.max(-1, Math.min(1, this._buffer[j]))
+          const val = s < 0 ? s * 0x8000 : s * 0x7fff
+          view.setInt16(j * 2, val, true)
+        }
 
-    // Emit frames only when we have at least 100 ms worth of samples
-    while (this._bufferLen >= this._targetFrameSize) {
-      const buffer = new ArrayBuffer(this._targetFrameSize * 2)
-      const view = new DataView(buffer)
-      for (let j = 0; j < this._targetFrameSize; j++) {
-        const s = Math.max(-1, Math.min(1, this._buffer[j]))
-        const val = s < 0 ? s * 0x8000 : s * 0x7fff
-        view.setInt16(j * 2, val, true) // Explicit little-endian Int16 PCM
+        this.port.postMessage({ pcm: buffer }, [buffer])
+        this._bufferLen = 0
       }
-
-      this._buffer.copyWithin(0, this._targetFrameSize, this._bufferLen)
-      this._bufferLen -= this._targetFrameSize
-
-      this.port.postMessage({ pcm: buffer }, [buffer])
     }
+
+    this._lastInputSample = Number.isFinite(channel[inLen - 1]) ? channel[inLen - 1] : 0
+    this._blockStart = blockEnd
+
+    // Any partial frame is intentionally retained only until the next full 100 ms frame.
+    // The Web Audio pipeline does not emit the short final remainder.
+    if (this._bufferLen > 0) {
+      // Keep the partial samples for the next block.
+    }
+
+    /*
+     * Reaching this point does not emit a partial frame. It remains in _buffer
+     * while _bufferLen is smaller than _targetFrameSize.
+     */
 
     return true
   }
