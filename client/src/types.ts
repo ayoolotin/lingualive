@@ -46,7 +46,7 @@ export interface ConversationExchange {
 }
 
 /** Playback state for TTS audio */
-export type TtsPlaybackState = 'idle' | 'loading' | 'playing' | 'error'
+export type TtsPlaybackState = 'idle' | 'loading' | 'playing' | 'completed' | 'error'
 
 /** Latency and duration evaluation metrics for TTS */
 export interface TtsTimingMetrics {

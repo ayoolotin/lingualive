@@ -35,6 +35,7 @@ export function TutorResponsePanel({
 
   const isTtsLoading = isTtsActive && ttsState === 'loading'
   const isTtsPlaying = isTtsActive && ttsState === 'playing'
+  const isTtsCompleted = isTtsActive && ttsState === 'completed'
 
   return (
     <section
@@ -116,13 +117,15 @@ export function TutorResponsePanel({
                   {/* Play / Listen Button */}
                   <button
                     type="button"
-                    onClick={isTtsPlaying ? onStopSpeak : onSpeak}
-                    disabled={isTtsLoading}
+                    onClick={onSpeak}
+                    disabled={isTtsLoading || isTtsPlaying}
                     aria-label={
                       isTtsPlaying
-                        ? 'Stop pronunciation audio'
+                        ? 'Pronunciation is playing'
                         : isTtsLoading
                         ? 'Loading audio…'
+                        : isTtsCompleted
+                        ? `Replay pronunciation in ${langLabel}`
                         : `Listen to pronunciation in ${langLabel}`
                     }
                     className={[
@@ -154,6 +157,13 @@ export function TutorResponsePanel({
                           <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clipRule="evenodd" />
                         </svg>
                         <span>Playing…</span>
+                      </>
+                    ) : isTtsCompleted ? (
+                      <>
+                        <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                          <path fillRule="evenodd" d="M4.5 9a5.5 5.5 0 111.95 4.22l-1.42-1.41A3.5 3.5 0 1010.5 7.5H8l3-3 3 3h-1.5A5.5 5.5 0 014.5 9z" clipRule="evenodd" />
+                        </svg>
+                        <span>Replay</span>
                       </>
                     ) : (
                       <>

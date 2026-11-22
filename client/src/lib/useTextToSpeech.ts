@@ -165,14 +165,12 @@ export function useTextToSpeech(): UseTextToSpeechReturn {
           const msg = err instanceof Error ? err.message : 'Could not start the browser audio context'
           setErrorMessage(msg)
           setPlaybackState('error')
-          setActivePhraseId(null)
           return
         }
       }
       if (ctx.state !== 'running') {
         setErrorMessage('Browser audio is suspended. Press Listen again to enable playback.')
         setPlaybackState('error')
-        setActivePhraseId(null)
         return
       }
       nextStartTimeRef.current = ctx.currentTime
@@ -201,7 +199,6 @@ export function useTextToSpeech(): UseTextToSpeechReturn {
         const msg = err instanceof Error ? err.message : 'Could not obtain TTS authorization'
         setErrorMessage(msg)
         setPlaybackState('error')
-        setActivePhraseId(null)
         return
       }
 
@@ -233,8 +230,8 @@ export function useTextToSpeech(): UseTextToSpeechReturn {
             )
           }
           setMetrics({ ...currentTiming })
-          setPlaybackState('idle')
-          setActivePhraseId(null)
+          setPlaybackState('completed')
+          setActivePhraseId(phraseId)
           wsRef.current = null
           try {
             if (ws.readyState === WebSocket.OPEN) {
@@ -319,7 +316,6 @@ export function useTextToSpeech(): UseTextToSpeechReturn {
               const msg = err instanceof Error ? err.message : 'Could not decode TTS PCM audio'
               setErrorMessage(msg)
               setPlaybackState('error')
-              setActivePhraseId(null)
               sessionGenerationRef.current++
               ws.close()
               void closeAudioContext()
@@ -389,7 +385,6 @@ export function useTextToSpeech(): UseTextToSpeechReturn {
             }
             setErrorMessage(err)
             setPlaybackState('error')
-            setActivePhraseId(null)
             sessionGenerationRef.current++
             wsRef.current = null
             for (const source of activeSourcesRef.current) {
@@ -410,7 +405,6 @@ export function useTextToSpeech(): UseTextToSpeechReturn {
           }
           setErrorMessage('TTS connection error')
           setPlaybackState('error')
-          setActivePhraseId(null)
           sessionGenerationRef.current++
           wsRef.current = null
           void closeAudioContext()
@@ -421,7 +415,7 @@ export function useTextToSpeech(): UseTextToSpeechReturn {
           if (import.meta.env.DEV) {
             console.debug('[LinguaLive TTS] WebSocket closed:', event.code)
           }
-          if (event.code === 1000 || event.code === 1005) return
+          if ((event.code === 1000 || event.code === 1005) && (flushDoneRef.current || playbackCompleted)) return
 
           if (!hasRetriedConnection && (event.code === 1008 || event.code === 3005 || event.code === 1012)) {
             hasRetriedConnection = true
@@ -437,7 +431,6 @@ export function useTextToSpeech(): UseTextToSpeechReturn {
                 if (sessionGenerationRef.current !== generation) return
                 setErrorMessage(err instanceof Error ? err.message : 'TTS reconnection failed')
                 setPlaybackState('error')
-                setActivePhraseId(null)
               })
             return
           }
@@ -451,7 +444,6 @@ export function useTextToSpeech(): UseTextToSpeechReturn {
           }
 
           setPlaybackState('error')
-          setActivePhraseId(null)
           sessionGenerationRef.current++
           wsRef.current = null
           void closeAudioContext()
