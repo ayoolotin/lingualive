@@ -1,171 +1,195 @@
-# LinguaLive Customer Speech Evaluation Protocol
+# LinguaLive Speech Evaluation Protocol
 
 ## Objective
 
-Determine whether AssemblyAI meets the customer's requirements for a real-time voice-powered language-learning product and provide a fair comparison against the customer's incumbent speech provider.
+This framework establishes a fair, reproducible process for assessing whether AssemblyAI meets the requirements of a language-learning voice agent and comparing it with a customer's incumbent speech provider.
 
-This framework is a foundation for evaluation. It does not run live provider comparisons and makes no claim about AssemblyAI versus an incumbent.
+It does not run a provider comparison and does not claim measured AssemblyAI or incumbent performance.
 
-## Why English input is representative
+## Why these utterances
 
-In LinguaLive, the learner initially speaks English and asks for guidance in Spanish, French, German or Italian. The learner is not asked to pronounce the target-language phrase before the tutor response. These eight utterances therefore exercise the intended customer use case: English voice input followed by target-language teaching content.
+LinguaLive's intended user speaks in English and asks how to express or understand something in another language. The learner does not need to speak the target phrase to use the tutor.
 
-The dataset is an exploratory pilot, not statistically representative evidence. Eight samples are too small to estimate population-level provider performance across accents, speakers, environments or all supported target-language contexts. Expand the recorded corpus and agree on sampling rules before making a customer decision.
+The pilot contains eight English requests covering:
 
-## Scope separation
+- A clean short greeting.
+- A contextual coffee-ordering question.
+- A grammatical contextual question.
+- An informal Italian request.
+- A longer hotel question.
+- A hesitant, multi-clause French request.
+- A natural variation in Spanish.
+- An Italian directions request with controlled background noise.
 
-Evaluate each layer separately:
+The complete manifest is [`dataset/manifest.json`](./dataset/manifest.json).
 
-- **STT:** recognition of the user's English request.
-- **LLM tutor:** correctness and usefulness of the generated target-language explanation and phrase.
-- **TTS:** pronunciation quality and intelligibility of the spoken target-language phrase.
-- **Voice-agent UX:** turn-taking, latency, recovery and usability.
-
-Do not infer LLM or TTS quality from STT WER.
+These eight recordings are an exploratory pilot. They are not statistically representative of accent, dialect, age, microphone, environment or provider population diversity. Use a larger, customer-defined corpus before drawing production conclusions.
 
 ## Recording protocol
 
-Record all eight files using the exact wording in [dataset/manifest.json](./dataset/manifest.json). Suggested file names are `EN-01.wav` through `EN-08.wav`, stored under [dataset/audio](./dataset/audio/).
+Record each exact reference transcript in `dataset/manifest.json`. The current manifest intentionally has:
 
-Before recording:
+- `audio_filename: null`
+- `speaker_id: null`
+- `audio_duration_ms: null`
+- `recording_status: "not_recorded"`
 
-1. Assign a speaker ID and record whether consent and anonymisation are complete.
-2. Use a consistent close microphone, room, encoding and sample rate for the corpus wherever provider APIs permit.
-3. Use the listed wording exactly. Preserve deliberate hesitation and pauses in EN-06.
-4. Record EN-08 with a controlled, documented background-noise source and approximate level.
-5. Keep the speaker, microphone, distance and environment consistent except for the condition being tested.
-6. Manually review and verify every reference transcript. No reference is considered complete until the file has been listened to and checked.
-7. Set `audio_filename`, `speaker_id`, `audio_duration_ms` and `recording_status` only after real files exist. Until then, status remains `not_recorded`.
+Do not replace these values or add benchmark data until real recordings exist.
 
-Recommended exploratory input:
+Suggested setup:
 
-- 16 kHz or 24 kHz mono WAV/PCM, depending on provider support;
-- a common source file rather than provider-specific conversions;
-- lossless source audio retained without normalisation or noise removal;
-- provider-permitted resampling and encoding documented separately.
+1. Assign an anonymised speaker ID.
+2. Read the exact wording naturally.
+3. Preserve hesitation in EN-06 rather than rephrasing it.
+4. Use one close microphone and documented room setup.
+5. Use mono PCM or WAV where provider APIs permit; 16 kHz or 24 kHz can be used consistently.
+6. Record EN-08 with a documented, controlled background-noise source and approximate level.
+7. Retain the original lossless source file.
+8. Manually listen to every recording and verify it matches the exact reference transcript.
+9. Record the measured duration once and store it consistently.
 
-Do not add or claim recordings that have not been supplied.
+Provider-specific resampling or encoding is not a reason to alter the source recording. If resampling is required, apply the same policy and record provider configuration for every run.
 
-## Identical audio and provider comparison
+## Fair provider comparison
 
-Give every provider the exact same source file for every test. Do not re-record each provider, edit wording, or choose a provider-specific audio transformation.
+For each test and run:
 
-For each provider and run, document:
+1. Use the exact same source audio file.
+2. Use the exact same manually verified reference transcript.
+3. Use consistent language, encoding and sample-rate settings wherever provider APIs permit.
+4. Record provider model, region, SDK/API version and relevant mode or turn-detection settings.
+5. Repeat runs where practical and retain each run number.
+6. Preserve failures, empty responses and timeouts.
+7. Use the same latency clock basis and the same audio-stream start timestamp definition.
+8. Do not silently exclude difficult or failed cases.
 
-- model name and region;
-- language/input configuration;
-- encoding and sample rate;
-- SDK/API version;
-- provider-specific connection settings;
-- timestamps and run number;
-- failures or timeouts.
-
-Run each test more than once where practical. Preserve every run in the CSV, including failures. Never silently exclude a timeout or unusable response.
-
-## Fairness and reproducibility
-
-1. Use the same verified reference transcript for every provider.
-2. Keep recording and encoding conditions constant wherever the APIs permit.
-3. Run in the same network and application region where practical.
-4. Start latency clocks at the same audio-stream start event.
-5. Record provider configuration and API versions.
-6. Separate measured results from assumptions and acceptance targets.
-7. Customer numeric thresholds must be agreed before reviewing provider results.
+Document provider configuration outside the metric script. Do not hide configuration changes between runs.
 
 ## Metrics
 
-### Word Error Rate (WER)
+### Word Error Rate
 
-WER is:
+WER measures word-level recognition accuracy:
 
-```
+```text
 WER = (substitutions + deletions + insertions) / reference word count
 ```
 
-The metrics script normalises text with Unicode normalisation, lowercase conversion, punctuation replacement, and whitespace normalisation. It uses word-level Levenshtein edit distance and reports substitutions, deletions and insertions.
+The metrics script normalises Unicode text, lowercases it, replaces punctuation with spaces and normalises whitespace. It uses word-level Levenshtein edit distance and reports:
 
-Missing or failed hypotheses are marked missing rather than converted into successful zero-error runs.
+- substitutions;
+- deletions;
+- insertions;
+- reference word count;
+- aggregate WER;
+- per-language WER.
+
+Aggregate WER is corpus-level: edits are summed and divided by summed reference words. It is not the average of per-test percentages.
+
+An empty or missing hypothesis is not scored as perfect. Missing references, missing hypotheses and failed provider rows are reported separately and excluded from measured WER aggregates.
+
+The script does not read an externally supplied WER column. It calculates WER from reference and hypothesis transcripts.
 
 ### First partial transcript latency
 
-Measure the elapsed milliseconds from a consistent audio-stream start timestamp to the arrival of the first partial transcript. Lower latency indicates earlier perceived responsiveness.
+Start the timer when audio streaming begins. Stop it when the first partial transcript arrives.
+
+Record both provider name and run number. This metric indicates perceived early responsiveness, but it does not measure the final turn.
 
 ### Final transcript latency
 
-Measure the elapsed milliseconds from the same audio-stream start timestamp to the provider's documented final/confirmed transcript result. It determines how quickly the user's English request can reach the tutor.
+Start the timer at the same audio-stream start event. Stop it when the provider emits the documented final or confirmed transcript.
+
+Use each provider's documented final-turn semantics consistently. Do not mix provider-final events with a provider-defined interim event.
 
 ### Real-time factor
 
-Calculate:
-
-```
+```text
 real-time factor = elapsed stream start-to-final time / audio duration
 ```
 
-Use the recorded audio duration consistently for every provider. A value below 1.0 means finalisation was faster than the source duration, subject to the provider event definition.
+Use the measured and recorded audio duration for the same source file. Lower values indicate faster finalisation relative to recorded audio; the result remains dependent on the provider's exact final-event definition.
 
-### Reliability
+### Success and failure rate
 
-Report success/failure rate, timeouts, empty transcripts and API errors separately. A provider with low WER but frequent disconnections or empty results is not suitable for the voice agent.
+Record success only for a usable completed transcription.
 
-### Noise robustness
+Count authentication failures, API failures, invalid responses, empty transcripts and timeouts as failures. Report both counts and percentages.
 
-Compare EN-08 and the clean samples under the exact same noise condition and audio file. Do not infer noise robustness from provider results with different source files or edited recordings.
+## Capturing streaming latency
+
+Use a shared harness or runner for provider implementations:
+
+1. Read the exact source file.
+2. Record a monotonic stream-start timestamp.
+3. Send audio at a consistent real-time pace or document that it was replayed offline.
+4. Timestamp every partial result.
+5. Timestamp the provider's final result.
+6. Record the audio duration independently.
+7. Save one row per provider/run in the results CSV.
+
+Provider SDK buffering or audio pacing must be identical in intent and documented if provider APIs require different frame handling.
+
+## Separating evaluation layers
+
+STT accuracy and latency must not be used as a score for downstream quality.
+
+Evaluate separately:
+
+- **STT:** English recognition, WER, partial stability and final-turn latency.
+- **LLM tutor:** target-language correctness, naturalness and pedagogical usefulness.
+- **TTS:** target-language pronunciation, intelligibility and naturalness.
+- **Voice-agent integration:** turn-taking, recovery and conversational reliability.
+
+The customer should judge downstream quality with separate transcripts and test protocols.
+
+## Acceptance thresholds
+
+Customer-specific thresholds must be agreed before provider results are reviewed.
+
+Examples of threshold categories include WER, latency percentiles, real-time factor and minimum success rate. No values are defined here because each customer use case has different accuracy and responsiveness requirements.
+
+Do not interpret missing thresholds or missing benchmark data as AssemblyAI performance.
 
 ## Results format
 
-Use [templates/results-template.csv](./templates/results-template.csv). Each row should contain the test ID, language, provider, run number, reference and hypothesis transcripts, WER, first partial latency, final latency, audio duration, real-time factor, success/failure, error details and notes.
+Use [`templates/results-template.csv`](./templates/results-template.csv). The columns cover:
 
-The metrics script:
+- test ID;
+- language;
+- provider;
+- run number;
+- reference transcript;
+- hypothesis transcript;
+- WER;
+- first partial latency;
+- final transcript latency;
+- audio duration;
+- real-time factor;
+- success/failure;
+- error details;
+- notes.
 
-- reads the provider CSV;
-- calculates normalised WER with Levenshtein edit distance;
-- aggregates substitutions, deletions and insertions;
-- reports aggregate and per-language WER; and
-- marks missing/failed rows without treating them as perfect scores.
+The metrics script calculates WER rather than trusting the CSV WER column.
 
-## Separate qualitative evaluation
+## Running the metrics script
 
-Review at minimum:
-
-- clean and longer English utterance recognition;
-- contextual and informal request recognition;
-- hesitation handling;
-- natural variation and contractions;
-- controlled-noise robustness;
-- partial transcript stability;
-- provider reconnection and timeout reliability;
-- SDK/API integration complexity;
-- conversational turn-taking suitability;
-- target-language tutor translation quality; and
-- target-language TTS intelligibility and pronunciation.
-
-Target-language translation quality and TTS pronunciation require separate human or specialist evaluation. STT WER should not be used as their score.
-
-## Acceptance criteria
-
-The customer must agree on numeric thresholds for WER, latency percentiles, real-time factor and success rate before provider results are reviewed. This repository intentionally defines no claimed thresholds and makes no performance claim.
-
-## Synthetic metric tests
-
-From the repository root:
+From the repository root, run synthetic metric tests:
 
 ```bash
 npm run eval:test
 ```
 
-These tests are synthetic and are not real benchmark results.
+The template run:
 
-## Calculate provider metrics
+```bash
+npm run eval:metrics
+```
 
-Place completed provider results at `evaluation/results/provider-results.csv`, then run:
+For a provider results file:
 
 ```bash
 npm run eval:metrics -- evaluation/results/provider-results.csv
 ```
 
-Without a provider file, the template command is a validation-only run:
-
-```bash
-npm run eval:metrics
-```
+The template and `evaluation/results/` contain no completed recordings or benchmark runs. A template run reports missing WER rather than fabricated provider results.
