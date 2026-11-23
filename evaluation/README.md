@@ -6,6 +6,43 @@ This framework establishes a fair, reproducible process for assessing whether As
 
 It does not run a provider comparison and does not claim measured AssemblyAI or incumbent performance.
 
+## Initial AssemblyAI STT pilot results
+
+The source of truth for the completed pilot is [`results/provider-results.csv`](./results/provider-results.csv). It contains eight recorded English utterances tested once with AssemblyAI.
+
+The pilot summary is:
+
+- Successful runs: 8 of 8.
+- Exact matches after transcript normalisation: 7 of 8.
+- Raw text is not identical in EN-03 and EN-06 because of quote and punctuation differences, but normalised metrics treat those outputs as matches.
+- EN-05 hypothesis: "I'm checking into a hotel in Germany. How can I ask whether I can leave my luggage here before check-in?"
+- EN-05 reference: "I'm checking into a hotel in Germany. How can I ask whether I can leave my luggage before check-in?"
+- The EN-05 wording difference is a one-word mismatch involving "here".
+- Aggregate WER: 1 insertion / 112 reference words = approximately 0.008929, or 0.89%.
+- Median first partial latency: 503.5 ms.
+- Median final transcript latency: 2614.5 ms.
+- Mean final transcript latency: 2700.5 ms.
+- RTF summary: minimum 0.5869, median 0.637550, mean 0.641713, maximum 0.7258.
+
+The existing metrics script uses corpus-level edit distance:
+
+```text
+WER = (substitutions + deletions + insertions) / total reference word count
+```
+
+For these eight successes, that produces 1 insertion and 112 reference words, rather than averaging the eight individual utterance WER values.
+
+These measurements describe STT recognition latency and accuracy for a real-time English voice agent. First partial latency indicates how quickly a partial transcript arrives. Final latency is elapsed time from stream start to the final Turn result. Real-time factor is final elapsed time divided by measured audio duration; values below 1.0 mean the final transcript became available faster than the source audio duration under this runner.
+
+This is an exploratory pilot, not a statistically representative benchmark:
+
+- Eight utterances were tested.
+- Only AssemblyAI was tested.
+- No incumbent provider comparison was performed.
+- Every utterance was tested once.
+- All input speech was English, so the results do not establish recognition performance across Spanish, French, German or Italian.
+- These results evaluate STT only, not tutor translation quality, LLM response quality or TTS pronunciation quality.
+
 ## Why these utterances
 
 LinguaLive's intended user speaks in English and asks how to express or understand something in another language. The learner does not need to speak the target phrase to use the tutor.
@@ -27,14 +64,9 @@ These eight recordings are an exploratory pilot. They are not statistically repr
 
 ## Recording protocol
 
-Record each exact reference transcript in `dataset/manifest.json`. The current manifest intentionally has:
+Record each exact reference transcript in `dataset/manifest.json`.
 
-- `audio_filename: null`
-- `speaker_id: null`
-- `audio_duration_ms: null`
-- `recording_status: "not_recorded"`
-
-Do not replace these values or add benchmark data until real recordings exist.
+The initial pilot now has eight recorded WAV files, with test durations stored in the manifest. `speaker_id` remains `speaker-not-supplied` because no verified speaker identity was recorded in the project metadata.
 
 Suggested setup:
 
@@ -192,4 +224,4 @@ For a provider results file:
 npm run eval:metrics -- evaluation/results/provider-results.csv
 ```
 
-The template and `evaluation/results/` contain no completed recordings or benchmark runs. A template run reports missing WER rather than fabricated provider results.
+The template run reports missing WER without fabricated provider results. For the completed AssemblyAI pilot, run the metrics script with `evaluation/results/provider-results.csv`.

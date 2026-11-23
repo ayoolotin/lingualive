@@ -187,7 +187,7 @@ WER is calculated from normalised word sequences and corpus-level Levenshtein ed
 
 Evaluation metrics cover WER, first partial latency, final transcript latency, real-time factor and success/failure rate. Recognition quality must remain separate from LLM tutor quality and TTS pronunciation quality.
 
-The dataset contains planned cases with no completed recordings or benchmark results. It is an exploratory pilot, not statistically representative evidence and not a provider comparison.
+The dataset contains eight completed English WAV recordings and an initial AssemblyAI STT pilot. It is an exploratory pilot, not statistically representative evidence and not a provider comparison.
 
 See [`evaluation/README.md`](./evaluation/README.md) for the recording and analysis protocol.
 
@@ -204,7 +204,7 @@ See [`evaluation/README.md`](./evaluation/README.md) for the recording and analy
 
 ## Known limitations
 
-- There is no completed head-to-head provider benchmark or completed evaluation recording set.
+- There is no completed head-to-head provider benchmark. The initial AssemblyAI STT pilot uses eight completed English recordings.
 - STT has no automatic reconnection after network loss; the learner can restart the session.
 - Missing or invalid `turn_order` values cannot always prevent duplicate delivery.
 - TTS automatically requests a fresh token and reconnects once for selected close codes (`1008`, `3005` and `1012`). Other failures or repeated reconnection cases require manual retry; there is no general reconnection manager.
