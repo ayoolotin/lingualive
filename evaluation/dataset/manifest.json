@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "status": "planned_not_recorded",
+  "status": "recordings_present",
   "dataset": [
     {
       "test_id": "EN-01",
@@ -8,10 +8,10 @@
       "input_language": "English",
       "target_language": "Spanish",
       "test_condition": "clean_short",
-      "audio_filename": null,
-      "speaker_id": null,
-      "recording_status": "not_recorded",
-      "audio_duration_ms": null
+      "audio_filename": "test1.wav",
+      "speaker_id": "speaker-not-supplied",
+      "recording_status": "recorded",
+      "audio_duration_ms": 2156
     },
     {
       "test_id": "EN-02",
@@ -19,10 +19,10 @@
       "input_language": "English",
       "target_language": "French",
       "test_condition": "conversational",
-      "audio_filename": null,
-      "speaker_id": null,
-      "recording_status": "not_recorded",
-      "audio_duration_ms": null
+      "audio_filename": "test2.wav",
+      "speaker_id": "speaker-not-supplied",
+      "recording_status": "recorded",
+      "audio_duration_ms": 4714
     },
     {
       "test_id": "EN-03",
@@ -30,10 +30,10 @@
       "input_language": "English",
       "target_language": "Spanish",
       "test_condition": "contextual",
-      "audio_filename": null,
-      "speaker_id": null,
-      "recording_status": "not_recorded",
-      "audio_duration_ms": null
+      "audio_filename": "test3.wav",
+      "speaker_id": "speaker-not-supplied",
+      "recording_status": "recorded",
+      "audio_duration_ms": 4179
     },
     {
       "test_id": "EN-04",
@@ -41,10 +41,10 @@
       "input_language": "English",
       "target_language": "Italian",
       "test_condition": "informal_language",
-      "audio_filename": null,
-      "speaker_id": null,
-      "recording_status": "not_recorded",
-      "audio_duration_ms": null
+      "audio_filename": "test4.wav",
+      "speaker_id": "speaker-not-supplied",
+      "recording_status": "recorded",
+      "audio_duration_ms": 3536
     },
     {
       "test_id": "EN-05",
@@ -52,10 +52,10 @@
       "input_language": "English",
       "target_language": "German",
       "test_condition": "longer_request",
-      "audio_filename": null,
-      "speaker_id": null,
-      "recording_status": "not_recorded",
-      "audio_duration_ms": null
+      "audio_filename": "test5.wav",
+      "speaker_id": "speaker-not-supplied",
+      "recording_status": "recorded",
+      "audio_duration_ms": 5786
     },
     {
       "test_id": "EN-06",
@@ -63,10 +63,10 @@
       "input_language": "English",
       "target_language": "French",
       "test_condition": "hesitation",
-      "audio_filename": null,
-      "speaker_id": null,
-      "recording_status": "not_recorded",
-      "audio_duration_ms": null
+      "audio_filename": "test6.wav",
+      "speaker_id": "speaker-not-supplied",
+      "recording_status": "recorded",
+      "audio_duration_ms": 6321
     },
     {
       "test_id": "EN-07",
@@ -74,10 +74,10 @@
       "input_language": "English",
       "target_language": "Spanish",
       "test_condition": "natural_variation",
-      "audio_filename": null,
-      "speaker_id": null,
-      "recording_status": "not_recorded",
-      "audio_duration_ms": null
+      "audio_filename": "test7.wav",
+      "speaker_id": "speaker-not-supplied",
+      "recording_status": "recorded",
+      "audio_duration_ms": 3643
     },
     {
       "test_id": "EN-08",
@@ -85,10 +85,10 @@
       "input_language": "English",
       "target_language": "Italian",
       "test_condition": "controlled_background_noise",
-      "audio_filename": null,
-      "speaker_id": null,
-      "recording_status": "not_recorded",
-      "audio_duration_ms": null
+      "audio_filename": "test8.wav",
+      "speaker_id": "speaker-not-supplied",
+      "recording_status": "recorded",
+      "audio_duration_ms": 3857
     }
   ]
 }
